@@ -1,12 +1,9 @@
 ﻿###################################################################################################
 ####################### Serial Conexion via MAVLink Protocol with APM #############################
 ###################################################################################################
-import scipy.io as io
 import numpy as np
-import pylab as plt2
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-
 # --------------------------------------
 # Importing MAVLink libray conexion
 # --------------------------------------
@@ -14,15 +11,13 @@ from pymavlink import mavutil
 from pymavlink.dialects.v10 import ardupilotmega as mavlink1
 
 # --------------------------------------
-# Initializing MAVLink conexion - Master Object
+# Initializing MAVLink conection - Master Object
 # --------------------------------------
 device = '/dev/ttyACM0'
 baudrate = 115200  # To use USB Port
-
 # baudrate = 57600  #To use Telemetry, this is the requested baudrate, which is commented.
 
 master = mavutil.mavlink_connection(device, baud=baudrate)
-
 # Waiting for heartbeat message from the APM board
 conexao = master.wait_heartbeat()
 
@@ -31,8 +26,9 @@ master.mav.request_data_stream_send(master.target_system, master.target_componen
 # ----------------------------------------
 # Classes and functions for the messages
 # ----------------------------------------
-
 # Buffer class to write and read, necessary to start the MAVLink dialect
+
+
 class fifo(object):
     def __init__(self):
         self.buf = []
@@ -69,18 +65,30 @@ FX = [0] * it_number
 FY = [0] * it_number
 N  = [0] * it_number
 
-PI = 3.141592653589793
+
+att_roll     = [0] * it_number
+att_pitch    = [0] * it_number
+att_yaw      = [0] * it_number
+att_rollsdp  = [0] * it_number
+att_pitchsdp = [0] * it_number
+att_yawsdp   = [0] * it_number
+
+pos_lat = [0] * it_number
+pos_lon = [0] * it_number
+pos_alt = [0] * it_number
+pos_vx = [0] * it_number
+pos_vy = [0] * it_number
+pos_vz = [0] * it_number
+
+PI      = 3.141592653589793
 DEG2RAD = np.pi/180.0
+RAD2DEG = 180.0/np.pi
 
 # ------------------------------------------
 # Main loop where the messages are exchanged
 # ------------------------------------------
-# arq = open("sampleText.txt","w+")
 
-# ax1, ax2 = fig.subplots(1, 2, sharey=True)
-# ax1.plot(x, y)
-# ax1.set_title('Sharing Y axis')
-# ax2.scatter(x, y)
+# Inicialização da figura
 
 fig = plt.figure()
 ax1 = plt.subplot(2,2,2)
@@ -121,6 +129,8 @@ def update(frame):
             # Receiving messages and taking only the necessary
             msg_rcv_out = master.recv_match(type="SYS_STATUS", blocking=True)
             msg_rcv_inputs = master.recv_match(type="NAV_CONTROLLER_OUTPUT", blocking=True)
+            attitude = master.recv_match(type="ATTITUDE", blocking=True)
+            position = master.recv_match(type="GLOBAL_POSITION_INT", blocking=True)
 
             # Testing if the variables with received data exist
             if msg_rcv_inputs:
@@ -131,17 +141,34 @@ def update(frame):
                 Theta_mot_4[i] = float(msg_rcv_inputs.target_bearing) / 100.0
 
                 FT[i] = float(msg_rcv_inputs.wp_dist) / 100
-                N[i] = float(msg_rcv_inputs.alt_error) / 1000
+                N[i]  = float(msg_rcv_inputs.alt_error) / 1000
                 FX[i] = float(msg_rcv_inputs.aspd_error) / 1000
                 FY[i] = float(msg_rcv_inputs.xtrack_error) / 1000
-
             if msg_rcv_out:
                 PWM1[i] = float(msg_rcv_out.errors_count1) / 10
                 PWM2[i] = float(msg_rcv_out.errors_count2) / 10
                 PWM3[i] = float(msg_rcv_out.errors_count3) / 10
                 PWM4[i] = float(msg_rcv_out.errors_count4) / 10
 
+            if attitude:
+                att_roll[i]     = float(attitude.roll) * RAD2DEG
+                att_pitch[i]    = float(attitude.pitch) * RAD2DEG
+                att_yaw[i]      = float(attitude.yaw) * RAD2DEG
+                att_rollsdp[i]  = float(attitude.rollspeed) * RAD2DEG
+                att_pitchsdp[i] = float(attitude.pitchspeed) * RAD2DEG
+                att_yawsdp[i]   = float(attitude.yawspeed) * RAD2DEG
+
+            if position:
+                pos_lat[i] = float(position.lat) #/ 10000000  #degE7
+                pos_lon[i] = float(position.lon) #/ 10000000
+                pos_alt[i] = float(position.relative_alt) * 1000 #* RAD2DEG em mm
+                pos_vx[i]  = float(position.vx) * 100.0  # Ground X Speed (Latitude, positive north) cm/s
+                pos_vy[i]  = float(position.vy) * 100.0
+                pos_vz[i]  = float(position.vz) * 100.0
+
+
             print "Theta Motor 1: %.3f \t Theta Motor 2: %.3f \t Theta Motor 3: %.3f \t Theta Motor 4: %.3f  " % (Theta_mot_1[i], Theta_mot_2[i], Theta_mot_3[i], Theta_mot_4[i])
+            print "LAT: %.3f \t LON: %.3f \t ALT: %.3f \t VX: %.3f  " % (pos_lat[i], pos_lon[i], pos_alt[i], pos_vx[i])
             print "PWM   Motor 1: %.3f \t PWM   Motor 2: %.3f \t PWM   Motor 3: %.3f \t PWM   Motor 4: %.3f  " % (PWM1[i], PWM2[i], PWM3[i], PWM4[i])
 
             xdata, ydata   = [], []
@@ -179,6 +206,11 @@ def update(frame):
 
 ani = FuncAnimation(fig, update, frames=np.linspace(0, it_number, it_number), init_func=init, blit=True)
 plt.show()
+
+# Saving gathered data to .mat file for further processing
+# io.savemat('Atitude.mat', {'Roll_angle': roll_angle,'Pitch_angle': pitch_angle,'Yaw_angle': yaw_angle})
+# arq.close()
+# print "FIM!"
 
 # xdata.append(frame)
 # ydata.append(Theta_mot_1[i])
